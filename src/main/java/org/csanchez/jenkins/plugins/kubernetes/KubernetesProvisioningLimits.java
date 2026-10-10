@@ -1,5 +1,6 @@
 package org.csanchez.jenkins.plugins.kubernetes;
 
+import edu.umd.cs.findbugs.annotations.CheckForNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
 import hudson.ExtensionList;
@@ -63,6 +64,11 @@ public final class KubernetesProvisioningLimits {
         }
     }
 
+    @CheckForNull
+    private static ClusterProvisioningLimits cluster() {
+        return ExtensionList.lookupFirst(ClusterProvisioningLimits.class);
+    }
+
     /**
      * @return the singleton instance
      */
@@ -83,6 +89,23 @@ public final class KubernetesProvisioningLimits {
             if (newGlobalCount <= cloud.getContainerCap()) {
                 int newPodTemplateCount = getPodTemplateCount(podTemplate.getId()) + numExecutors;
                 if (newPodTemplateCount <= podTemplate.getInstanceCap()) {
+                    ClusterProvisioningLimits cluster = cluster();
+                    if (cluster != null
+                            && !cluster.register(
+                                    cloud.name,
+                                    cloud.getContainerCap(),
+                                    podTemplate.getId(),
+                                    podTemplate.getInstanceCap(),
+                                    numExecutors)) {
+                        LOGGER.log(
+                                Level.FINEST,
+                                () -> cloud.name + "/" + podTemplate.getName() + " cluster-wide limit reached. Cannot add "
+                                        + numExecutors + " more!");
+                        Metrics.metricRegistry()
+                                .counter(MetricNames.REACHED_GLOBAL_CAP)
+                                .inc();
+                        return false;
+                    }
                     cloudCounts.put(cloud.name, newGlobalCount);
                     LOGGER.log(
                             Level.FINEST,
@@ -122,6 +145,10 @@ public final class KubernetesProvisioningLimits {
      * @param numExecutors the number of executors (pretty much always 1)
      */
     public void unregister(@NonNull KubernetesCloud cloud, @NonNull PodTemplate podTemplate, int numExecutors) {
+        ClusterProvisioningLimits cluster = cluster();
+        if (cluster != null) {
+            cluster.unregister(cloud.name, podTemplate.getId(), numExecutors);
+        }
         if (initInstance()) {
             synchronized (this) {
                 int newGlobalCount = getGlobalCount(cloud.name) - numExecutors;
