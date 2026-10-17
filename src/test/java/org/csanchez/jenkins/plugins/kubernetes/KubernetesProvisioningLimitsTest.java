@@ -1,6 +1,7 @@
 package org.csanchez.jenkins.plugins.kubernetes;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -28,6 +29,22 @@ class KubernetesProvisioningLimitsTest {
     @BeforeEach
     void beforeEach(JenkinsRule rule) {
         j = rule;
+    }
+
+    @Test
+    void registersWithoutAClusterImplementation() {
+        KubernetesCloud cloud = new KubernetesCloud("k");
+        cloud.setContainerCap(1);
+        PodTemplate pt = new PodTemplate();
+        pt.setName("t");
+        cloud.addTemplate(pt);
+        j.jenkins.clouds.add(cloud);
+        KubernetesProvisioningLimits limits = KubernetesProvisioningLimits.get();
+
+        assertTrue(limits.register(cloud, pt, 1));
+        assertFalse(limits.register(cloud, pt, 1));
+        limits.unregister(cloud, pt, 1);
+        assertEquals(0, limits.getGlobalCount("k"));
     }
 
     @Test
